@@ -685,7 +685,7 @@ const PROVIDER_DEFS = [
   {id:"cohere",     name:"Cohere",      logo:"🔶",category:"LLM",      hint:"command-r-plus",          docs:"https://dashboard.cohere.com/api-keys"},
   {id:"together",   name:"Together AI", logo:"🤝",category:"LLM",      hint:"meta-llama/Llama-3.3-70B-Instruct-Turbo",docs:"https://api.together.xyz/settings/api-keys"},
   {id:"perplexity", name:"Perplexity",  logo:"🌐",category:"LLM",      hint:"llama-3.1-sonar-large-128k-online",docs:"https://www.perplexity.ai/settings/api"},
-  {id:"huggingface",name:"HF Inference",  logo:"🤗",category:"LLM",      hint:"meta-llama/Llama-3.2-3B-Instruct",docs:"https://huggingface.co/settings/tokens"},
+  {id:"huggingface",name:"HF Inference",  logo:"🤗",category:"LLM",      hint:"Qwen/Qwen3-4B-Instruct-2507",docs:"https://huggingface.co/settings/tokens"},
   {id:"openrouter", name:"OpenRouter",  logo:"🔀",category:"LLM",      hint:"anthropic/claude-3.5-sonnet",docs:"https://openrouter.ai/keys"},
   {id:"stability",  name:"Stability AI",logo:"🎨",category:"Image",    hint:"stable-diffusion-xl-1024-v1-0",docs:"https://platform.stability.ai/account/keys"},
   {id:"replicate",  name:"Replicate",   logo:"♻️",category:"Multi",    hint:"black-forest-labs/flux-schnell",docs:"https://replicate.com/account/api-tokens"},
@@ -703,7 +703,7 @@ function SettingsPage({ onProviderChange }) {
   const [testRes, setTestRes] = useState({});
   const [testing, setTesting] = useState({});
   const [stats, setStats]     = useState(null);
-  const [activeP, setActiveP] = useState("anthropic");
+  const [activeP, setActiveP] = useState("huggingface");
   const [loading, setLoading] = useState(true);
 
   const loadKeys = useCallback(async()=>{
@@ -894,7 +894,7 @@ const NAV=[
 export default function App() {
   const [page,setPage]           = useState("orch");
   const [collapsed,setCollapsed] = useState(false);
-  const [activeProvider,setActiveProvider] = useState("anthropic");
+  const [activeProvider,setActiveProvider] = useState("huggingface");
   const [backendOk,setBackendOk] = useState(null);
 
   useEffect(()=>{

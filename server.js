@@ -9,7 +9,7 @@ const compression = require("compression");
 const rateLimit   = require("express-rate-limit");
 const { Pool }    = require("pg");
 const crypto      = require("crypto");
-const fetch       = (...args) => import("node-fetch").then(m => m.default(...args));
+const fetch       = (...args) => globalThis.fetch(...args);
 const uuidv4 = () => crypto.randomUUID();
 
 // ─── Config ──────────────────────────────────────────────────────────────────
@@ -18,8 +18,13 @@ const ENC_KEY  = process.env.ENCRYPTION_KEY || "change_me_32_char_secret_key_her
 const ENC_IV_LEN = 16;
 
 // ─── Database ─────────────────────────────────────────────────────────────────
-const db = new Pool({ connectionString: process.env.DATABASE_URL });
-db.on("error", err => console.error("DB pool error:", err));
+const db = process.env.DATABASE_URL
+  ? new Pool({ connectionString: process.env.DATABASE_URL })
+  : null;
+
+if (db) {
+  db.on("error", err => console.error("DB pool error:", err));
+}
 
 // ─── Encryption helpers ───────────────────────────────────────────────────────
 function encrypt(text) {
@@ -152,12 +157,15 @@ const PROVIDERS = {
   },
   huggingface: {
     name: "HF Inference",    logo: "🤗",
-    url:  (key, model) => `https://api-inference.huggingface.co/models/${model}`,
-    models: ["meta-llama/Llama-3.2-3B-Instruct","microsoft/Phi-3.5-mini-instruct","HuggingFaceH4/zephyr-7b-beta"], // model paths are required by the API
-    defaultModel: "meta-llama/Llama-3.2-3B-Instruct",
+    url:  "https://router.huggingface.co/v1/chat/completions",
+    models: ["Qwen/Qwen3-4B-Instruct-2507","Qwen/Qwen3-14B-Instruct-2507","HuggingFaceTB/SmolLM3-3B"],
+    defaultModel: "Qwen/Qwen3-4B-Instruct-2507",
     authHeader: (key) => ({ "Authorization": `Bearer ${key}` }),
-    buildBody: (msgs, sys) => ({ inputs: msgs.map(m => m.content).join("\n") }),
-    parseResp: (d) => (Array.isArray(d) ? d[0]?.generated_text : d?.generated_text) ?? "",
+    buildBody: (msgs, sys, maxT, model) => ({
+      model, stream: false, max_tokens: maxT,
+      messages: [{ role:"system", content:sys }, ...msgs],
+    }),
+    parseResp: (d) => d?.choices?.[0]?.message?.content ?? "",
     category: "LLM",
   },
   stability: {
@@ -226,6 +234,57 @@ const PROVIDERS = {
 };
 
 // ─── Express App ──────────────────────────────────────────────────────────────
+function getEnvCredential(provider) {
+  const key = process.env[`${provider.toUpperCase()}_API_KEY`];
+  if (!key) return null;
+  return {
+    key,
+    modelHint: process.env[`${provider.toUpperCase()}_MODEL`] || PROVIDERS[provider]?.defaultModel,
+  };
+}
+
+function getEnvConfiguredProviders() {
+  return Object.entries(PROVIDERS).flatMap(([id, meta]) => {
+    const cred = getEnvCredential(id);
+    if (!cred) return [];
+    return [{
+      id: `env-${id}`,
+      provider: id,
+      label: `${meta.name} (env)`,
+      model_hint: cred.modelHint,
+      is_active: true,
+      last_used_at: null,
+      created_at: null,
+      updated_at: null,
+      source: "env",
+      meta,
+      hasKey: true,
+    }];
+  });
+}
+
+function parseJsonBody(req) {
+  if (req.body && typeof req.body === "object" && !Buffer.isBuffer(req.body)) {
+    return req.body;
+  }
+
+  const candidates = [
+    Buffer.isBuffer(req.body) ? req.body.toString("utf8") : req.body,
+    req.rawBody,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string" || candidate.trim() === "") continue;
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // try next candidate
+    }
+  }
+
+  return {};
+}
+
 const app = express();
 
 app.use(helmet({ crossOriginResourcePolicy: false }));
@@ -243,42 +302,73 @@ app.use("/api/orchestrate", aiLimiter);
 
 // ─── Health ───────────────────────────────────────────────────────────────────
 app.get("/health", async (req, res) => {
+  if (!db) {
+    return res.json({ status:"ok", db:"not_configured", ts: new Date().toISOString(), version:"1.0.0" });
+  }
   try {
     await db.query("SELECT 1");
-    res.json({ status:"ok", ts: new Date().toISOString(), version:"1.0.0" });
-  } catch { res.status(503).json({ status:"error" }); }
+    res.json({ status:"ok", db:"connected", ts: new Date().toISOString(), version:"1.0.0" });
+  } catch {
+    res.status(503).json({ status:"error", db:"unreachable" });
+  }
 });
 
 // ─── API Keys CRUD ────────────────────────────────────────────────────────────
 
 // GET /api/keys — list configured providers (masked keys)
 app.get("/api/keys", async (req, res) => {
+  const envConfigured = getEnvConfiguredProviders();
+  if (!db) {
+    const configured = new Set(envConfigured.map(r => r.provider));
+    const unconfigured = Object.entries(PROVIDERS)
+      .filter(([id]) => !configured.has(id))
+      .map(([id, meta]) => ({ provider: id, hasKey: false, is_active: false, meta }));
+    return res.json({ keys: envConfigured, unconfigured, storage: "env_only" });
+  }
+
   try {
     const { rows } = await db.query(
       "SELECT id, provider, label, model_hint, is_active, last_used_at, created_at, updated_at FROM api_keys ORDER BY provider"
     );
     // Enrich with provider metadata
-    const enriched = rows.map(r => ({
+    const dbKeys = rows.map(r => ({
       ...r,
       meta: PROVIDERS[r.provider] || { name: r.provider, logo:"🔑", models:[], category:"Unknown" },
       hasKey: true,
+      source: "db",
     }));
-    // Add providers that haven't been configured yet
-    const configured = new Set(rows.map(r => r.provider));
+    const seen = new Set(dbKeys.map(r => r.provider));
+    const mergedEnv = envConfigured.filter(r => !seen.has(r.provider));
+    const keys = [...dbKeys, ...mergedEnv];
+    // Add providers that haven't been configured yet in db/env
+    const configured = new Set(keys.map(r => r.provider));
     const unconfigured = Object.entries(PROVIDERS)
       .filter(([id]) => !configured.has(id))
       .map(([id, meta]) => ({ provider: id, hasKey: false, is_active: false, meta }));
-    res.json({ keys: enriched, unconfigured });
+    res.json({ keys, unconfigured, storage: "db_and_env" });
   } catch (e) {
+    if (envConfigured.length > 0) {
+      const configured = new Set(envConfigured.map(r => r.provider));
+      const unconfigured = Object.entries(PROVIDERS)
+        .filter(([id]) => !configured.has(id))
+        .map(([id, meta]) => ({ provider: id, hasKey: false, is_active: false, meta }));
+      return res.json({ keys: envConfigured, unconfigured, storage: "env_fallback", warning: e.message });
+    }
     res.status(500).json({ error: e.message });
   }
 });
 
 // POST /api/keys — add or update a provider key
 app.post("/api/keys", async (req, res) => {
-  const { provider, key, label, model_hint } = req.body;
+  const body = parseJsonBody(req);
+  const { provider, key, label, model_hint } = body;
   if (!provider || !key) return res.status(400).json({ error: "provider and key are required" });
   if (!PROVIDERS[provider]) return res.status(400).json({ error: `Unknown provider: ${provider}` });
+  if (!db) {
+    return res.status(400).json({
+      error: `Database storage unavailable. Set ${provider.toUpperCase()}_API_KEY as an environment variable.`,
+    });
+  }
   try {
     const enc = encrypt(key.trim());
     const hint = model_hint || PROVIDERS[provider].defaultModel;
@@ -296,6 +386,7 @@ app.post("/api/keys", async (req, res) => {
 
 // DELETE /api/keys/:provider — remove a key
 app.delete("/api/keys/:provider", async (req, res) => {
+  if (!db) return res.status(400).json({ error: "Database storage unavailable in this environment." });
   try {
     await db.query("DELETE FROM api_keys WHERE provider=$1", [req.params.provider]);
     res.json({ ok: true });
@@ -306,6 +397,7 @@ app.delete("/api/keys/:provider", async (req, res) => {
 
 // PATCH /api/keys/:provider/toggle — activate/deactivate
 app.patch("/api/keys/:provider/toggle", async (req, res) => {
+  if (!db) return res.status(400).json({ error: "Database storage unavailable in this environment." });
   try {
     const { rows } = await db.query(
       "UPDATE api_keys SET is_active = NOT is_active WHERE provider=$1 RETURNING is_active",
@@ -319,6 +411,11 @@ app.patch("/api/keys/:provider/toggle", async (req, res) => {
 
 // ─── AI Chat proxy ────────────────────────────────────────────────────────────
 async function getKey(provider) {
+  const envCred = getEnvCredential(provider);
+  if (envCred?.key) return envCred;
+  if (!db) {
+    throw new Error(`No key configured for provider: ${provider}. Set ${provider.toUpperCase()}_API_KEY.`);
+  }
   const { rows } = await db.query(
     "SELECT key_enc, model_hint FROM api_keys WHERE provider=$1 AND is_active=TRUE",
     [provider]
@@ -329,7 +426,8 @@ async function getKey(provider) {
 }
 
 app.post("/api/chat", async (req, res) => {
-  const { messages, system = "", maxTokens = 1000, provider = "anthropic", model } = req.body;
+  const body = parseJsonBody(req);
+  const { messages, system = "", maxTokens = 1000, provider = "anthropic", model } = body;
   if (!messages?.length) return res.status(400).json({ error: "messages required" });
 
   const t0 = Date.now();
@@ -351,17 +449,21 @@ app.post("/api/chat", async (req, res) => {
     const lat  = Date.now() - t0;
 
     // Log usage
-    db.query(
-      "INSERT INTO usage_log (provider,model_id,latency_ms,success) VALUES ($1,$2,$3,TRUE)",
-      [provider, usedModel, lat]
-    ).catch(() => {});
+    if (db) {
+      db.query(
+        "INSERT INTO usage_log (provider,model_id,latency_ms,success) VALUES ($1,$2,$3,TRUE)",
+        [provider, usedModel, lat]
+      ).catch(() => {});
+    }
 
     res.json({ text, provider, model: usedModel, latency_ms: lat });
   } catch (e) {
-    db.query(
-      "INSERT INTO usage_log (provider,model_id,latency_ms,success,error_msg) VALUES ($1,$2,$3,FALSE,$4)",
-      [provider, usedModel, Date.now()-t0, e.message]
-    ).catch(() => {});
+    if (db) {
+      db.query(
+        "INSERT INTO usage_log (provider,model_id,latency_ms,success,error_msg) VALUES ($1,$2,$3,FALSE,$4)",
+        [provider, usedModel, Date.now()-t0, e.message]
+      ).catch(() => {});
+    }
     res.status(500).json({ error: e.message });
   }
 });
@@ -376,7 +478,8 @@ const ORCH_AGENTS = [
 ];
 
 app.post("/api/orchestrate", async (req, res) => {
-  const { task, provider = "anthropic" } = req.body;
+  const body = parseJsonBody(req);
+  const { task, provider = "anthropic" } = body;
   if (!task) return res.status(400).json({ error: "task required" });
 
   const runId = uuidv4();
@@ -391,10 +494,12 @@ app.post("/api/orchestrate", async (req, res) => {
   const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
   try {
-    await db.query(
-      "INSERT INTO orchestrator_runs (id,task,status) VALUES ($1,$2,'running')",
-      [runId, task]
-    );
+    if (db) {
+      await db.query(
+        "INSERT INTO orchestrator_runs (id,task,status) VALUES ($1,$2,'running')",
+        [runId, task]
+      );
+    }
 
     const { key, modelHint } = await getKey(provider);
     const prov = PROVIDERS[provider];
@@ -432,14 +537,18 @@ app.post("/api/orchestrate", async (req, res) => {
     const dur = Date.now() - t0;
     const final = steps.find(s=>s.agId==="synth")?.text || steps.at(-1)?.text || "";
 
-    await db.query(
-      "UPDATE orchestrator_runs SET steps=$1,final_out=$2,duration_ms=$3,status='done' WHERE id=$4",
-      [JSON.stringify(steps), final, dur, runId]
-    );
+    if (db) {
+      await db.query(
+        "UPDATE orchestrator_runs SET steps=$1,final_out=$2,duration_ms=$3,status='done' WHERE id=$4",
+        [JSON.stringify(steps), final, dur, runId]
+      );
+    }
 
     send({ type:"done", runId, duration_ms: dur });
   } catch (e) {
-    await db.query("UPDATE orchestrator_runs SET status='error' WHERE id=$1", [runId]);
+    if (db) {
+      await db.query("UPDATE orchestrator_runs SET status='error' WHERE id=$1", [runId]);
+    }
     send({ type:"error", error: e.message });
   }
 
@@ -448,6 +557,9 @@ app.post("/api/orchestrate", async (req, res) => {
 
 // ─── Usage stats ──────────────────────────────────────────────────────────────
 app.get("/api/stats", async (req, res) => {
+  if (!db) {
+    return res.json({ byProvider: [], recentRuns: [], note: "database not configured" });
+  }
   try {
     const { rows: byProvider } = await db.query(`
       SELECT provider, COUNT(*) as calls, AVG(latency_ms)::int as avg_latency,

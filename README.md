@@ -5,6 +5,7 @@ Full-stack AI orchestration app:
 - API: Express
 - Deploy target: Netlify (frontend + serverless function wrapper)
 - Local DB: PostgreSQL via Docker Compose
+- Optional no-DB mode: provider keys from environment variables (e.g. `HUGGINGFACE_API_KEY`)
 
 ## 1) Local run
 
@@ -37,3 +38,10 @@ Netlify cannot run Docker containers for production databases.
 Use a managed Postgres provider (Neon, Supabase, Railway, Render Postgres, etc.) and place that connection string in `DATABASE_URL` on Netlify.
 
 `docker-compose.yml` is for local development only.
+
+## 4) Quick no-DB deploy
+
+If you want to use only Hugging Face without database setup:
+- Set `HUGGINGFACE_API_KEY` in Netlify environment variables
+- Optionally set `HUGGINGFACE_MODEL`
+- Redeploy
