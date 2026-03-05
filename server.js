@@ -10,7 +10,7 @@ const rateLimit   = require("express-rate-limit");
 const { Pool }    = require("pg");
 const crypto      = require("crypto");
 const fetch       = (...args) => import("node-fetch").then(m => m.default(...args));
-const { v4: uuidv4 } = require("uuid");
+const uuidv4 = () => crypto.randomUUID();
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 const PORT     = process.env.PORT || 3001;
