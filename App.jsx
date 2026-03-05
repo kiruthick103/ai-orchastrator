@@ -112,13 +112,28 @@ const OTHER_TASK_GROUPS = [
 ];
 
 const AGENTS = [
-  { id:"planner",    name:"Planner",    g:"◐", col:C.bl3 },
-  { id:"researcher", name:"Researcher", g:"◎", col:C.ch4 },
-  { id:"executor",   name:"Executor",   g:"◑", col:C.ok },
-  { id:"critic",     name:"Critic",     g:"◒", col:C.err2 },
-  { id:"synth",      name:"Synthesizer",g:"◈", col:C.gr3 },
+  { id:"planner",    name:"Planner",    g:"P", col:C.bl3 },
+  { id:"researcher", name:"Researcher", g:"R", col:C.ch4 },
+  { id:"executor",   name:"Executor",   g:"E", col:C.ok },
+  { id:"critic",     name:"Critic",     g:"C", col:C.err2 },
+  { id:"synth",      name:"Synthesizer",g:"S", col:C.gr3 },
 ];
-
+const AGENT_SYSS = {
+  planner: "You are a strategic planner. Create a structured execution plan with specific steps and success criteria.",
+  researcher: "You are a research specialist. Gather all relevant knowledge and context comprehensively.",
+  executor: "You are an expert executor. Carry out the task with precision producing high-quality output.",
+  critic: "You are a rigorous critic. SCORE(1-10) | CRITICAL ISSUES | SPECIFIC IMPROVEMENTS | REVISED SECTIONS.",
+  synth: "You are a master synthesizer. Integrate the key points into one polished final response.",
+};
+function pickAgentForTask(text = "", atts = []) {
+  const attHint = atts.map(a => `${a.type || ""} ${a.name || ""}`).join(" ");
+  const q = `${text} ${attHint}`.toLowerCase();
+  if (/\b(research|latest|source|evidence|study|paper|market|trend|compare)\b/.test(q)) return AGENTS.find(a => a.id === "researcher");
+  if (/\b(plan|roadmap|strategy|timeline|architecture|steps)\b/.test(q)) return AGENTS.find(a => a.id === "planner");
+  if (/\b(review|critique|audit|improve|feedback|score|bugs|risk)\b/.test(q)) return AGENTS.find(a => a.id === "critic");
+  if (/\b(summarize|synthesize|combine|final draft|rewrite)\b/.test(q)) return AGENTS.find(a => a.id === "synth");
+  return AGENTS.find(a => a.id === "executor");
+}
 // ─── UTILS ────────────────────────────────────────────────────────────────────
 const uid  = () => Math.random().toString(36).slice(2,9);
 const fmtD = ms => ms < 1000 ? `${ms}ms` : `${(ms/1000).toFixed(1)}s`;
@@ -223,35 +238,26 @@ function OrchestratorPage({ activeProvider }) {
     setRunning(true);setInput("");setAtts([]);
 
     const steps=[];
-    const AGENT_SYSS = {
-      planner:   "You are a strategic planner. Create a structured execution plan with specific steps and success criteria.",
-      researcher:"You are a research specialist. Gather all relevant knowledge and context comprehensively.",
-      executor:  "You are an expert executor. Carry out the task with precision producing high-quality output.",
-      critic:    "You are a rigorous critic. SCORE(1-10) | CRITICAL ISSUES | SPECIFIC IMPROVEMENTS | REVISED SECTIONS.",
-      synth:     "You are a master synthesizer. Integrate all agent outputs into a polished final response.",
-    };
+    const ag = pickAgentForTask(task.input, atts);
+    setTasks(p=>p.map(t=>t.id!==id?t:{...t,active:ag.id}));
 
-    for (const ag of AGENTS) {
-      setTasks(p=>p.map(t=>t.id!==id?t:{...t,active:ag.id}));
-      const t1=Date.now();
-      try {
-        const prev = steps.length?`\nPrevious (${steps.at(-1).name}):\n${steps.at(-1).text.slice(0,600)}\n---\nTask: ${task.input}`:task.input;
-        // Build message with possible attachment context
-        let msgContent = prev;
-        if (!steps.length && atts.length) {
-          const attContext = atts.map(a => a.type==="image"?`[Image: ${a.name}]`:`[File: ${a.name}]\n${a.content||""}`).join("\n");
-          msgContent = `${attContext}\n\n${prev}`;
-        }
-        const text = await callAI([{role:"user",content:msgContent}], AGENT_SYSS[ag.id]||"", 1000, activeProvider);
-        const d=Date.now()-t1,cf=scoreConf(text);
-        steps.push({agId:ag.id,name:ag.name,g:ag.g,col:ag.col,text,conf:cf,dur:d});
-        setTasks(p=>p.map(t=>t.id!==id?t:{...t,steps:[...steps],conf:steps.reduce((s,r)=>s+r.conf,0)/steps.length}));
-      } catch(e) {
-        steps.push({agId:ag.id,name:ag.name,g:ag.g,col:ag.col,text:`Error: ${e.message}`,conf:0,dur:0});
-        setTasks(p=>p.map(t=>t.id!==id?t:{...t,steps:[...steps]}));
+    const t1=Date.now();
+    try {
+      let msgContent = task.input;
+      if (atts.length) {
+        const attContext = atts.map(a => a.type==="image"?`[Image: ${a.name}]`:`[File: ${a.name}]\n${a.content||""}`).join("\n");
+        msgContent = `${attContext}\n\n${task.input}`;
       }
+      const text = await callAI([{role:"user",content:msgContent}], AGENT_SYSS[ag.id]||"", 1000, activeProvider);
+      const d=Date.now()-t1,cf=scoreConf(text);
+      steps.push({agId:ag.id,name:ag.name,g:ag.g,col:ag.col,text,conf:cf,dur:d});
+      setTasks(p=>p.map(t=>t.id!==id?t:{...t,steps:[...steps],conf:cf}));
+    } catch(e) {
+      steps.push({agId:ag.id,name:ag.name,g:ag.g,col:ag.col,text:`Error: ${e.message}`,conf:0,dur:0});
+      setTasks(p=>p.map(t=>t.id!==id?t:{...t,steps:[...steps],conf:0}));
     }
-    const dur=Date.now()-t0,cf=steps.reduce((s,r)=>s+r.conf,0)/steps.length;
+
+    const dur=Date.now()-t0,cf=steps[0]?.conf||0;
     setTasks(p=>p.map(t=>t.id!==id?t:{...t,status:"done",dur,conf:cf,active:null}));
     setRunning(false);
   },[input,atts,running,activeProvider]);
@@ -268,7 +274,7 @@ function OrchestratorPage({ activeProvider }) {
           <div style={{display:"flex",alignItems:"flex-start",gap:16,marginBottom:16}}>
             <div style={{flex:1}}>
               <h2 style={{fontSize:24,fontWeight:700,color:C.ch1,fontFamily:"var(--serif)",letterSpacing:-.5,lineHeight:1,margin:0}}>AI Orchestrator</h2>
-              <p style={{fontSize:11.5,color:C.ch5,fontFamily:"var(--mono)",marginTop:4,letterSpacing:.5}}>5-agent autonomous pipeline · provider: <span style={{color:C.bl3,fontWeight:700}}>{activeProvider}</span></p>
+              <p style={{fontSize:11.5,color:C.ch5,fontFamily:"var(--mono)",marginTop:4,letterSpacing:.5}}>single-agent adaptive routing · provider: <span style={{color:C.bl3,fontWeight:700}}>{activeProvider}</span></p>
             </div>
             {done.length>0&&(
               <div style={{display:"flex",gap:10}}>
@@ -303,7 +309,7 @@ function OrchestratorPage({ activeProvider }) {
           <div onDragOver={e=>{e.preventDefault();setDrag(true);}} onDragLeave={()=>setDrag(false)} onDrop={e=>{e.preventDefault();setDrag(false);addFiles(e.dataTransfer.files);}}
             style={{border:`2px solid ${drag?C.bl3:C.ch8}`,borderRadius:14,overflow:"hidden",background:drag?`${C.bl8}80`:C.iv1,transition:"border-color .2s,background .2s"}}>
             <textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&(e.ctrlKey||e.metaKey)&&run()}
-              placeholder="Describe any complex task — the 5-agent pipeline will plan, research, execute, critique, and synthesize. Attach files for context."
+              placeholder="Describe any complex task — the orchestrator will pick one specialist agent for this prompt. Attach files for context."
               style={{...S.input,minHeight:100,background:"transparent",border:"none",padding:"16px 18px",fontSize:15}}/>
             {atts.length>0&&<div style={{padding:"8px 14px 10px",display:"flex",gap:8,flexWrap:"wrap",borderTop:`1px solid ${C.ch9}`}}>{atts.map(a=><AttChip key={a.id} att={a} onRemove={()=>setAtts(p=>p.filter(x=>x.id!==a.id))}/>)}</div>}
             <div style={{padding:"10px 14px",borderTop:`1px solid ${C.ch9}`,display:"flex",alignItems:"center",gap:8,background:`${C.iv2}88`}}>
@@ -320,7 +326,7 @@ function OrchestratorPage({ activeProvider }) {
               <div style={{flex:1}}/>
               <span style={{fontSize:10,color:C.ch7,fontFamily:"var(--mono)"}}>⌘↵ run</span>
               <Btn onClick={run} disabled={running||(!input.trim()&&!atts.length)} v="ink" size="md">
-                {running?<><Spin col={C.iv2} size={14}/> Orchestrating…</>:<>Orchestrate →</>}
+                {running?<><Spin col={C.iv2} size={14}/> Routing…</>:<>Run →</>}
               </Btn>
             </div>
           </div>
@@ -352,8 +358,7 @@ const TaskCard = memo(({task})=>{
   const [open,setOpen]=useState(true);
   const [activeStep,setStep]=useState(null);
   const done=task.status==="done";
-  const synth=task.steps.find(s=>s.agId==="synth");
-  const display=activeStep?task.steps.find(s=>s.agId===activeStep):(synth||task.steps.at(-1));
+  const display=activeStep?task.steps.find(s=>s.agId===activeStep):task.steps.at(-1);
   return(
     <ICard accent={done?C.ok:task.status==="running"?C.warn2:C.err2} elevated style={{overflow:"hidden",animation:"slideUp .22s ease"}}>
       <div onClick={()=>setOpen(v=>!v)} style={{padding:"13px 18px",cursor:"pointer",display:"flex",alignItems:"flex-start",gap:12,background:done?`${C.ok4}88`:task.status==="running"?`${C.warn4}60`:C.iv1,borderBottom:open?`1px solid ${C.ch9}`:"none",transition:"background .3s"}}>
@@ -373,7 +378,7 @@ const TaskCard = memo(({task})=>{
       </div>
       {open&&<div style={{padding:"15px 18px",display:"flex",flexDirection:"column",gap:12}}>
         {done&&<div style={{display:"flex",alignItems:"center",gap:12,padding:"10px 14px",background:C.iv2,borderRadius:10,border:`1px solid ${C.ch9}`}}><span style={{fontSize:10,fontWeight:700,color:C.ch5,fontFamily:"var(--mono)",letterSpacing:1,minWidth:78}}>CONFIDENCE</span><div style={{flex:1}}><ConfBar v={task.conf}/></div><span style={{fontSize:10,color:C.ch6,fontFamily:"var(--mono)"}}>{fmtD(task.dur)} total</span></div>}
-        {task.status==="running"&&task.steps.length===0&&<div style={{padding:"24px 0",display:"flex",flexDirection:"column",alignItems:"center",gap:12}}><Dots3 col={C.bl4}/><span style={{fontSize:12,color:C.ch5,fontFamily:"var(--serif)"}}>Initializing agents…</span></div>}
+        {task.status==="running"&&task.steps.length===0&&<div style={{padding:"24px 0",display:"flex",flexDirection:"column",alignItems:"center",gap:12}}><Dots3 col={C.bl4}/><span style={{fontSize:12,color:C.ch5,fontFamily:"var(--serif)"}}>Selecting best specialist…</span></div>}
         {task.steps.length>0&&<div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
           <button onClick={()=>setStep(null)} style={{padding:"5px 13px",borderRadius:99,border:`1.5px solid ${!activeStep?C.ch3:C.ch8}`,background:!activeStep?C.iv3:"transparent",color:!activeStep?C.ch1:C.ch5,fontSize:11,fontFamily:"var(--serif)",fontWeight:!activeStep?700:400,cursor:"pointer"}}>◈ Final</button>
           {task.steps.map(s=><button key={s.agId} onClick={()=>setStep(s.agId)} style={{display:"flex",alignItems:"center",gap:5,padding:"5px 13px",borderRadius:99,border:`1.5px solid ${activeStep===s.agId?s.col:C.ch8}`,background:activeStep===s.agId?`${s.col}14`:"transparent",color:activeStep===s.agId?s.col:C.ch5,fontSize:11,fontFamily:"var(--serif)",fontWeight:activeStep===s.agId?700:400,cursor:"pointer"}}><span style={{fontSize:10}}>{s.g}</span>{s.name}<span style={{fontSize:9,fontFamily:"var(--mono)",opacity:.65}}>{fmtD(s.dur)}</span></button>)}
@@ -886,7 +891,7 @@ function SettingsPage({ onProviderChange }) {
 
 // ─── APP SHELL ────────────────────────────────────────────────────────────────
 const NAV=[
-  {id:"orch",    e:"◈",label:"Orchestrator",sub:"5-agent pipeline"},
+  {id:"orch",    e:"◈",label:"Orchestrator",sub:"single-agent"},
   {id:"models",  e:"⊞",label:"AI Models",   sub:"24 active · 26 tasks"},
   {id:"settings",e:"⚙",label:"API Keys",    sub:"Providers & secrets"},
 ];
@@ -982,3 +987,4 @@ export default function App() {
     </div>
   );
 }
+

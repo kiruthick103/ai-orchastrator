@@ -477,6 +477,23 @@ const ORCH_AGENTS = [
   { id:"synth",      name:"Synthesizer",sys:"You are a master synthesizer. Integrate all agent outputs into a single polished, comprehensive, publication-ready final response." },
 ];
 
+function pickOrchAgent(taskText = "") {
+  const q = taskText.toLowerCase();
+  if (/\b(research|latest|source|evidence|study|paper|market|trend|compare)\b/.test(q)) {
+    return ORCH_AGENTS.find(a => a.id === "researcher");
+  }
+  if (/\b(plan|roadmap|strategy|timeline|architecture|steps)\b/.test(q)) {
+    return ORCH_AGENTS.find(a => a.id === "planner");
+  }
+  if (/\b(review|critique|audit|improve|feedback|score|bugs|risk)\b/.test(q)) {
+    return ORCH_AGENTS.find(a => a.id === "critic");
+  }
+  if (/\b(summarize|synthesize|combine|final draft|rewrite)\b/.test(q)) {
+    return ORCH_AGENTS.find(a => a.id === "synth");
+  }
+  return ORCH_AGENTS.find(a => a.id === "executor");
+}
+
 app.post("/api/orchestrate", async (req, res) => {
   const body = parseJsonBody(req);
   const { task, provider = "anthropic" } = body;
@@ -504,38 +521,35 @@ app.post("/api/orchestrate", async (req, res) => {
     const { key, modelHint } = await getKey(provider);
     const prov = PROVIDERS[provider];
     const model = modelHint || prov.defaultModel;
+    const agent = pickOrchAgent(task);
 
     send({ type:"start", runId });
 
-    for (const agent of ORCH_AGENTS) {
-      const t1  = Date.now();
-      send({ type:"agent_start", agentId: agent.id, name: agent.name });
+    const t1 = Date.now();
+    send({ type:"agent_start", agentId: agent.id, name: agent.name });
+    const msgs = [{ role:"user", content: task }];
 
-      const prev = steps.length ? `\nPrevious (${steps.at(-1).name}):\n${steps.at(-1).text.slice(0,600)}\n---\nTask: ${task}` : task;
-      const msgs = [{ role:"user", content: prev }];
+    try {
+      const url  = typeof prov.url === "function" ? prov.url(key, model) : prov.url;
+      const hdrs = { "Content-Type":"application/json", ...prov.authHeader(key) };
+      const body = prov.buildBody(msgs, agent.sys, 1000, model);
 
-      try {
-        const url  = typeof prov.url === "function" ? prov.url(key, model) : prov.url;
-        const hdrs = { "Content-Type":"application/json", ...prov.authHeader(key) };
-        const body = prov.buildBody(msgs, agent.sys, 1000, model);
+      const resp = await fetch(url, { method:"POST", headers:hdrs, body:JSON.stringify(body) });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data?.error?.message || `HTTP ${resp.status}`);
 
-        const resp = await fetch(url, { method:"POST", headers:hdrs, body:JSON.stringify(body) });
-        const data = await resp.json();
-        if (!resp.ok) throw new Error(data?.error?.message || `HTTP ${resp.status}`);
-
-        const text = prov.parseResp(data);
-        const step = { agId:agent.id, name:agent.name, text, dur: Date.now()-t1 };
-        steps.push(step);
-        send({ type:"agent_done", ...step });
-      } catch (e) {
-        const step = { agId:agent.id, name:agent.name, text:`Error: ${e.message}`, dur:0, error:true };
-        steps.push(step);
-        send({ type:"agent_error", ...step });
-      }
+      const text = prov.parseResp(data);
+      const step = { agId:agent.id, name:agent.name, text, dur: Date.now()-t1 };
+      steps.push(step);
+      send({ type:"agent_done", ...step });
+    } catch (e) {
+      const step = { agId:agent.id, name:agent.name, text:`Error: ${e.message}`, dur:0, error:true };
+      steps.push(step);
+      send({ type:"agent_error", ...step });
     }
 
     const dur = Date.now() - t0;
-    const final = steps.find(s=>s.agId==="synth")?.text || steps.at(-1)?.text || "";
+    const final = steps.at(-1)?.text || "";
 
     if (db) {
       await db.query(
