@@ -1,3 +1,4 @@
+require("dotenv").config();
 const express = require("express");
 const path = require("path");
 const compression = require("compression");
@@ -5,7 +6,6 @@ const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const supabase = require("./server/supabase");
-require("dotenv").config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -21,7 +21,7 @@ app.use(helmet({
       scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
       imgSrc: ["'self'", "data:", "blob:"],
-      connectSrc: ["'self'"],
+      connectSrc: ["'self'", "blob:"],
       fontSrc: ["'self'", "https://cdn.jsdelivr.net"],
     },
   },
@@ -46,25 +46,66 @@ app.use(express.static(path.join(__dirname, "public"), {
   etag: true,
 }));
 
-// ---- Supabase Connection Check ----
+// ---- Supabase Connection Check + Auto-Migration ----
+const CREATE_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS meals (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    name TEXT NOT NULL,
+    calories INTEGER NOT NULL CHECK (calories > 0 AND calories <= 10000),
+    type TEXT NOT NULL CHECK (type IN ('breakfast', 'lunch', 'dinner', 'snacks')),
+    date TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now()
+  );
+  ALTER TABLE meals ENABLE ROW LEVEL SECURITY;
+  DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow all for anon' AND tablename = 'meals') THEN
+      CREATE POLICY 'Allow all for anon' ON meals FOR ALL USING (true);
+    END IF;
+  END $$;
+`;
+
 (async () => {
   if (!supabase) {
     console.warn("⚠️ Supabase client not initialized. Set SUPABASE_URL and SUPABASE_ANON_KEY.");
     return;
   }
+
+  // Check if table exists
   const { error } = await supabase.from("meals").select("id").limit(1);
+
   if (error && error.code === "42P01") {
-    console.error(
-      '⚠️ "meals" table not found. Create it in Supabase SQL Editor:\n' +
-        "CREATE TABLE meals (\n" +
-        "  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,\n" +
-        "  name TEXT NOT NULL,\n" +
-        "  calories INTEGER NOT NULL CHECK (calories > 0 AND calories <= 10000),\n" +
-        "  type TEXT NOT NULL CHECK (type IN ('breakfast', 'lunch', 'dinner', 'snacks')),\n" +
-        "  date TEXT NOT NULL,\n" +
-        "  created_at TIMESTAMPTZ DEFAULT now()\n" +
-        ");"
-    );
+    // Table doesn't exist — try auto-creation via Management API or direct SQL
+    console.log("⚠️ meals table not found. Attempting auto-migration...");
+    try {
+      const projectRef = process.env.SUPABASE_URL.replace("https://", "").replace(".supabase.co", "");
+      const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+      if (serviceKey) {
+        // Use Management API to run SQL
+        const resp = await fetch(`https://api.supabase.com/v1/projects/${projectRef}/database/query`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${serviceKey}`,
+          },
+          body: JSON.stringify({ query: CREATE_TABLE_SQL }),
+        });
+        if (resp.ok) {
+          console.log("✅ meals table created via Management API");
+        } else {
+          throw new Error(`Management API returned ${resp.status}`);
+        }
+      } else {
+        // Fallback: try PostgREST schema query to verify
+        console.log("ℹ️ No SUPABASE_SERVICE_ROLE_KEY — manual setup required.");
+        console.log("
+📋 Run this SQL in Supabase SQL Editor (https://app.supabase.com → SQL Editor):\n" + CREATE_TABLE_SQL);
+      }
+    } catch (migrateErr) {
+      console.error("⚠️ Auto-migration failed:", migrateErr.message);
+      console.log("
+📋 Run this SQL in Supabase SQL Editor (https://app.supabase.com → SQL Editor):\n" + CREATE_TABLE_SQL);
+    }
   } else if (error) {
     console.error("Supabase connection error:", error.message);
   } else {
