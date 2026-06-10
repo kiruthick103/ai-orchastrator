@@ -1,5 +1,8 @@
 const express = require("express");
 const path = require("path");
+const compression = require("compression");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const supabase = require("./server/supabase");
 require("dotenv").config();
@@ -7,9 +10,41 @@ require("dotenv").config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Trust proxy (required for rate-limiting behind Render's reverse proxy)
+app.set("trust proxy", 1);
+
+// --- Security & Performance Middleware ---
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
+      imgSrc: ["'self'", "data:", "blob:"],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'", "https://cdn.jsdelivr.net"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+}));
+app.use(compression());
+
+// Rate limiting — 100 requests per 15 min per IP
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests, please try again later." },
+});
+app.use("/api/", limiter);
+
 // Increase body size limit for base64 image data
 app.use(express.json({ limit: "10mb" }));
-app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static(path.join(__dirname, "public"), {
+  maxAge: "1h",
+  etag: true,
+}));
 
 // ---- Supabase Connection Check ----
 (async () => {
