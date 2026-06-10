@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-spider-theme="miles-morales">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>SpideyTracker — Calorie Tracker by Spider-Man</title>
+  <meta name="description" content="Track your daily nutrition with style. A premium calorie tracker inspired by Spider-Man: Classic red & blue in Light mode, Miles Morales dark in Dark mode." />
+  <meta name="theme-color" content="#0d0d12" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="SpideyTracker" />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.svg" />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" defer></script>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <!-- Loading Screen -->
+  <div id="loadingScreen" class="loading-screen" role="status" aria-label="Loading">
+    <div class="loading-spider-ring">
+      <svg class="loading-ring-svg" viewBox="0 0 120 120" aria-hidden="true">
+        <circle cx="60" cy="60" r="52" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" class="loading-ring-bg" />
+        <circle cx="60" cy="60" r="52" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" class="loading-ring-progress" />
+      </svg>
+      <span class="loading-spider-icon" aria-hidden="true">🕷️</span>
+    </div>
+    <p class="loading-text">Loading your tracker...</p>
+  </div>
+
+  <!-- Background Layers (Subtle Premium) -->
+  <div class="web-bg" aria-hidden="true"></div>
+  <div class="spider-mask-bg" aria-hidden="true"></div>
+  <div class="city-skyline" aria-hidden="true"></div>
+  <div class="ambient-glow" aria-hidden="true"></div>
+
+  <!-- Header (Glass Nav Bar) -->
+  <header class="header" role="banner">
+    <div class="header-content">
+      <button id="menuToggle" class="btn-icon header-btn" aria-label="Open navigation menu">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
+      </button>
+      <div class="logo">
+        <span class="logo-icon" aria-hidden="true">
+          <svg viewBox="0 0 40 40" width="32" height="32" fill="none">
+            <path d="M20 2 C10 2 3 9 3 18 C3 23 6 26 6 26 L6 34 L11 36 L11 42 L16 44 L16 32 L20 28 L24 32 L24 44 L29 42 L29 36 L34 34 L34 26 C34 26 37 23 37 18 C37 9 30 2 20 2Z" fill="currentColor" opacity="0.9"/>
+            <path d="M14 18 Q17 22 20 18 Q23 22 26 18 Q23 24 20 26 Q17 24 14 18Z" fill="var(--logo-eye)" opacity="0.9"/>
+          </svg>
+        </span>
+        <h1 class="logo-text">SpideyTracker</h1>
+      </div>
+      <div class="header-controls">
+        <button id="themeToggle" class="btn-icon header-btn" aria-label="Toggle theme">🌙</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Sidebar Navigation -->
+  <nav id="sidebar" class="sidebar" role="navigation" aria-label="Main navigation">
+    <div class="sidebar-header">
+      <span class="sidebar-logo">🕷️</span>
+      <span class="sidebar-title">SpideyTracker</span>
+    </div>
+    <ul class="nav-list">
+      <li><a href="#dashboard" class="nav-link active" data-section="dashboard" aria-current="page"><span class="nav-icon">📊</span> Dashboard</a></li>
+      <li><a href="#calculator" class="nav-link" data-section="calculator"><span class="nav-icon">🧮</span> Calculator</a></li>
+      <li><a href="#meals" class="nav-link" data-section="meals"><span class="nav-icon">🍽️</span> Meals</a></li>
+      <li><a href="#camera" class="nav-link" data-section="camera"><span class="nav-icon">📸</span> Food Scanner</a></li>
+      <li><a href="#charts" class="nav-link" data-section="charts"><span class="nav-icon">📈</span> Charts</a></li>
+    </ul>
+    <div class="sidebar-footer">
+      <span class="quote">"With great power comes great nutrition."</span>
+    </div>
+  </nav>
+
+  <!-- Overlay -->
+  <div id="overlay" class="overlay" aria-hidden="true"></div>
+
+  <!-- Main Content -->
+  <main class="main" role="main">
+    <!-- Dashboard Section -->
+    <section id="dashboard" class="section active" aria-label="Dashboard">
+      <h2 class="section-title">Dashboard</h2>
+
+      <!-- Progress Ring + Stats -->
+      <div class="dashboard-hero">
+        <div class="progress-ring-card card glass">
+          <div class="progress-ring-container">
+            <svg class="progress-ring-svg" viewBox="0 0 200 200" aria-hidden="true">
+              <circle cx="100" cy="100" r="88" fill="none" stroke="currentColor" stroke-width="6" class="ring-bg" />
+              <circle cx="100" cy="100" r="88" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" class="ring-progress" id="calProgressRing" transform="rotate(-90 100 100)" />
+            </svg>
+            <div class="ring-center">
+              <span id="progressPercent" class="ring-percent">0%</span>
+              <span class="ring-label">consumed</span>
+            </div>
+          </div>
+          <div class="ring-stats">
+            <div class="ring-stat">
+              <span class="ring-stat-value" id="caloriesConsumed">0</span>
+              <span class="ring-stat-label">Consumed</span>
+            </div>
+            <div class="ring-stat">
+              <span class="ring-stat-value" id="caloriesRemaining">2000</span>
+              <span class="ring-stat-label">Remaining</span>
+            </div>
+            <div class="ring-stat">
+              <span class="ring-stat-value" id="mealCount">0</span>
+              <span class="ring-stat-label">Meals</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="dashboard-stats">
+          <div class="card glass stat-card" tabindex="0">
+            <div class="stat-icon-wrapper goal-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+            </div>
+            <div class="stat-info">
+              <span class="stat-label">Daily Goal</span>
+              <span id="dailyGoal" class="stat-value">2000</span>
+              <span class="stat-unit">calories</span>
+            </div>
+            <button id="editGoalBtn" class="btn-icon stat-edit" aria-label="Edit daily goal">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.83 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+            </button>
+          </div>
+
+          <div class="card glass stat-card">
+            <div class="stat-icon-wrapper streak-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+            </div>
+            <div class="stat-info">
+              <span class="stat-label">Streak</span>
+              <span id="streakCount" class="stat-value">0</span>
+              <span class="stat-unit">days</span>
+            </div>
+          </div>
+
+          <div class="card glass stat-card">
+            <div class="stat-icon-wrapper avg-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            </div>
+            <div class="stat-info">
+              <span class="stat-label">Week Avg</span>
+              <span id="weeklyAvg" class="stat-value">0</span>
+              <span class="stat-unit">cal/day</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Meal Log -->
+      <div class="card glass">
+        <div class="card-header-row">
+          <h3>Quick Log</h3>
+          <button id="quickLogToggle" class="btn-text" aria-expanded="false" aria-controls="quickLogForm">Add Meal +</button>
+        </div>
+        <form id="quickLogForm" class="quick-log-form hidden" aria-hidden="true">
+          <div class="quick-log-row">
+            <input type="text" id="quickMealName" class="input-glass" placeholder="Meal name" required aria-label="Meal name" />
+            <input type="number" id="quickMealCalories" class="input-glass" placeholder="Calories" min="1" max="10000" required aria-label="Calories" />
+            <select id="quickMealType" class="input-glass" aria-label="Meal type">
+              <option value="breakfast">🌅 Breakfast</option>
+              <option value="lunch">☀️ Lunch</option>
+              <option value="dinner">🌙 Dinner</option>
+              <option value="snacks">🍿 Snacks</option>
+            </select>
+            <button type="submit" class="btn-primary btn-sm">Log</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Today's Meals Preview -->
+      <div class="card glass">
+        <div class="card-header-row">
+          <h3>Today's Meals</h3>
+        </div>
+        <div id="todayMealsList" class="meals-mini-list" role="list">
+          <p class="empty-state">No meals logged yet. Time to fuel up! 🕷️</p>
+        </div>
+      </div>
+
+      <!-- Weekly Summary -->
+      <div class="card glass">
+        <div class="card-header-row">
+          <h3>This Week</h3>
+        </div>
+        <div id="weeklySummary" class="weekly-summary" role="list">
+          <p class="empty-state">Start logging to see your week.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Calorie Calculator Section -->
+    <section id="calculator" class="section" aria-label="Calorie Calculator">
+      <h2 class="section-title">Calorie Calculator</h2>
+      <div class="card glass calculator-card">
+        <div class="calculator-form">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="calcAge">Age</label>
+              <input type="number" id="calcAge" class="input-glass" min="10" max="120" placeholder="25" />
+            </div>
+            <div class="form-group">
+              <label for="calcGender">Gender</label>
+              <select id="calcGender" class="input-glass">
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="calcHeight">Height (cm)</label>
+              <input type="number" id="calcHeight" class="input-glass" min="50" max="300" step="0.1" placeholder="175" />
+            </div>
+            <div class="form-group">
+              <label for="calcWeight">Weight (kg)</label>
+              <input type="number" id="calcWeight" class="input-glass" min="20" max="500" step="0.1" placeholder="70" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="calcActivity">Activity Level</label>
+            <select id="calcActivity" class="input-glass">
+              <option value="1.2">Sedentary</option>
+              <option value="1.375">Light (1-3 days)</option>
+              <option value="1.55">Moderate (3-5 days)</option>
+              <option value="1.725">Very Active (6-7 days)</option>
+              <option value="1.9">Extra Active</option>
+            </select>
+          </div>
+          <button id="calcBtn" class="btn-primary btn-full">Calculate</button>
+        </div>
+        <div id="calcResults" class="calculator-results hidden">
+          <div class="result-grid">
+            <div class="result-item">
+              <span class="result-label">BMR</span>
+              <span id="resultBMR" class="result-value">-</span>
+              <span class="result-unit">cal/day</span>
+            </div>
+            <div class="result-item highlight-gold">
+              <span class="result-label">Maintenance</span>
+              <span id="resultMaintenance" class="result-value">-</span>
+              <span class="result-unit">cal/day</span>
+            </div>
+            <div class="result-item highlight-green">
+              <span class="result-label">Weight Loss</span>
+              <span id="resultLoss" class="result-value">-</span>
+              <span class="result-unit">cal/day</span>
+            </div>
+            <div class="result-item highlight-red">
+              <span class="result-label">Weight Gain</span>
+              <span id="resultGain" class="result-value">-</span>
+              <span class="result-unit">cal/day</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Meals Section -->
+    <section id="meals" class="section" aria-label="Meal Tracker">
+      <h2 class="section-title">Meal Tracker</h2>
+
+      <div class="card glass">
+        <h3>Add New Meal</h3>
+        <form id="mealForm" class="meal-form">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="mealName">Meal Name</label>
+              <input type="text" id="mealName" class="input-glass" placeholder="e.g. Web Sandwich" required />
+            </div>
+            <div class="form-group">
+              <label for="mealCalories">Calories</label>
+              <input type="number" id="mealCalories" class="input-glass" min="1" max="10000" placeholder="350" required />
+            </div>
+            <div class="form-group">
+              <label for="mealType">Type</label>
+              <select id="mealType" class="input-glass">
+                <option value="breakfast">🌅 Breakfast</option>
+                <option value="lunch">☀️ Lunch</option>
+                <option value="dinner">🌙 Dinner</option>
+                <option value="snacks">🍿 Snacks</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn-primary">Add Meal</button>
+            <button type="button" id="exportCsvBtn" class="btn-secondary">Export CSV</button>
+            <button type="button" id="clearAllBtn" class="btn-danger">Clear All</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card glass">
+        <div class="filter-bar">
+          <input type="text" id="mealSearch" class="input-glass" placeholder="Search meals..." aria-label="Search meals" />
+          <select id="mealFilter" class="input-glass" aria-label="Filter by type">
+            <option value="all">All Types</option>
+            <option value="breakfast">🌅 Breakfast</option>
+            <option value="lunch">☀️ Lunch</option>
+            <option value="dinner">🌙 Dinner</option>
+            <option value="snacks">🍿 Snacks</option>
+          </select>
+          <select id="mealDateFilter" class="input-glass" aria-label="Filter by date">
+            <option value="today">Today</option>
+            <option value="all">All Time</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="card glass">
+        <div class="meals-header">
+          <h3>Your Meals</h3>
+          <span id="totalCaloriesDisplay" class="total-calories">0 cal</span>
+        </div>
+        <div id="mealsList" class="meals-list" role="list"></div>
+      </div>
+    </section>
+
+    <!-- Camera Section -->
+    <section id="camera" class="section" aria-label="Food Scanner">
+      <h2 class="section-title">Food Scanner</h2>
+      <div class="card glass camera-card">
+        <div class="camera-container" role="region" aria-label="Camera viewfinder">
+          <video id="cameraFeed" autoplay playsinline class="camera-feed hidden"></video>
+          <canvas id="photoCanvas" class="hidden"></canvas>
+          <div id="cameraPlaceholder" class="camera-placeholder">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.4"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2v11z"/><circle cx="12" cy="13" r="4"/></svg>
+            <p>Snap a photo for AI estimation</p>
+          </div>
+          <div class="camera-scan-frame" aria-hidden="true"></div>
+        </div>
+        <div class="camera-controls">
+          <button id="startCameraBtn" class="btn-primary">Open Camera</button>
+          <button id="capturePhotoBtn" class="btn-primary hidden">Capture</button>
+          <button id="retakePhotoBtn" class="btn-secondary hidden">Retake</button>
+          <button id="stopCameraBtn" class="btn-danger hidden">✕ Stop Camera</button>
+        </div>
+        <div id="photoPreview" class="photo-preview hidden">
+          <h3>Captured Photo</h3>
+          <img id="previewImg" alt="Captured food photo" />
+          <div id="aiEstimation" class="ai-estimation">
+            <h4>AI Estimation</h4>
+            <div id="estimatedCalories" class="ai-result">
+              <p>Analysis will appear here.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Charts Section -->
+    <section id="charts" class="section" aria-label="Statistics">
+      <h2 class="section-title">Statistics</h2>
+      <div class="charts-grid">
+        <div class="card glass chart-card">
+          <h3>Daily Calories (This Week)</h3>
+          <canvas id="dailyChart" aria-label="Bar chart of daily calorie intake"></canvas>
+        </div>
+        <div class="card glass chart-card">
+          <h3>Calories by Meal Type</h3>
+          <canvas id="mealTypeChart" aria-label="Doughnut chart of meal type distribution"></canvas>
+        </div>
+        <div class="card glass chart-card">
+          <h3>Weekly Trend</h3>
+          <canvas id="weeklyChart" aria-label="Line chart of weekly calorie trend"></canvas>
+        </div>
+        <div class="card glass chart-card full-width">
+          <h3>Daily Average per Meal Type</h3>
+          <canvas id="avgChart" aria-label="Stacked bar chart of meal types by day"></canvas>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Edit Meal Modal -->
+  <div id="mealModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-content glass">
+      <button class="modal-close" aria-label="Close">&times;</button>
+      <h3 id="modalTitle">Edit Meal</h3>
+      <form id="editMealForm">
+        <input type="hidden" id="editMealId" />
+        <div class="form-group">
+          <label for="editMealName">Meal Name</label>
+          <input type="text" id="editMealName" class="input-glass" required />
+        </div>
+        <div class="form-group">
+          <label for="editMealCalories">Calories</label>
+          <input type="number" id="editMealCalories" class="input-glass" min="1" max="10000" required />
+        </div>
+        <div class="form-group">
+          <label for="editMealType">Type</label>
+          <select id="editMealType" class="input-glass">
+            <option value="breakfast">🌅 Breakfast</option>
+            <option value="lunch">☀️ Lunch</option>
+            <option value="dinner">🌙 Dinner</option>
+            <option value="snacks">🍿 Snacks</option>
+          </select>
+        </div>
+        <button type="submit" class="btn-primary btn-full">Save Changes</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Goal Edit Modal -->
+  <div id="goalModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="goalModalTitle">
+    <div class="modal-content glass">
+      <button class="modal-close goal-modal-close" aria-label="Close">&times;</button>
+      <h3 id="goalModalTitle">Set Daily Goal</h3>
+      <div class="form-group">
+        <label for="goalInput">Daily Calorie Goal</label>
+        <input type="number" id="goalInput" class="input-glass" min="500" max="10000" />
+      </div>
+      <button id="saveGoalBtn" class="btn-primary btn-full">Save</button>
+    </div>
+  </div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+{
+  "name": "spiderman-calorie-tracker",
+  "version": "1.0.0",
+  "description": "A Spider-Man themed Calorie Tracker web application with dashboard, calculator, meal management, camera, and charts.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "calorie-tracker",
+    "spiderman",
+    "fitness",
+    "nutrition",
+    "pwa"
+  ],
+  "author": "Kiruthick103",
+  "license": "MIT",
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "dotenv": "^17.4.2",
+    "express": "^4.18.2",
+    "mongoose": "^9.7.0"
+  }
+}

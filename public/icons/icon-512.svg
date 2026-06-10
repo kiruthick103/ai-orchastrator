@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#cc0000"/>
+      <stop offset="100%" style="stop-color:#990000"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="64" fill="url(#bg)"/>
+  <!-- Spider body -->
+  <circle cx="256" cy="245" r="75" fill="#1a1a2e"/>
+  <circle cx="256" cy="245" r="58" fill="#1565C0"/>
+  <!-- Spider legs -->
+  <g stroke="#1a1a2e" stroke-width="9" stroke-linecap="round" fill="none">
+    <path d="M208 208 Q155 155 112 128"/>
+    <path d="M304 208 Q357 155 400 128"/>
+    <path d="M192 235 Q128 213 80 203"/>
+    <path d="M320 235 Q384 213 432 203"/>
+    <path d="M192 265 Q128 287 80 297"/>
+    <path d="M320 265 Q384 287 432 297"/>
+    <path d="M208 288 Q155 341 112 368"/>
+    <path d="M304 288 Q357 341 400 368"/>
+  </g>
+  <!-- Spider eyes -->
+  <ellipse cx="230" cy="228" rx="16" ry="22" fill="white"/>
+  <ellipse cx="282" cy="228" rx="16" ry="22" fill="white"/>
+  <ellipse cx="230" cy="228" rx="8" ry="14" fill="#1a1a2e"/>
+  <ellipse cx="282" cy="228" rx="8" ry="14" fill="#1a1a2e"/>
+  <!-- Web pattern overlay -->
+  <g stroke="rgba(255,255,255,0.12)" stroke-width="2.5" fill="none">
+    <line x1="256" y1="105" x2="256" y2="385"/>
+    <line x1="105" y1="245" x2="407" y2="245"/>
+    <line x1="148" y1="148" x2="364" y2="364"/>
+    <line x1="364" y1="148" x2="148" y2="364"/>
+    <circle cx="256" cy="245" r="120" stroke-width="2"/>
+    <circle cx="256" cy="245" r="92" stroke-width="1.5"/>
+  </g>
+  <!-- "SC" text -->
+  <text x="256" y="340" text-anchor="middle" font-family="Arial Black, sans-serif" font-weight="900" font-size="36" fill="white" opacity="0.9">SC</text>
+</svg>
