@@ -409,14 +409,14 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function getMealById(id) {
-    return meals.find((m) => m._id === id || m.id === id);
+    return meals.find((m) => m.id === id);
   }
 
   async function deleteMeal(id) {
     if (!confirm("Delete this meal? 🕷️")) return;
     try {
       await deleteMealFromAPI(id);
-      meals = meals.filter((m) => m._id !== id && m.id !== id);
+      meals = meals.filter((m) => m.id !== id);
       renderAll();
     } catch (err) {
       alert("Failed to delete meal: " + err.message + " 🕷️");
@@ -426,7 +426,7 @@ document.addEventListener("DOMContentLoaded", () => {
   async function editMeal(id, name, calories, type) {
     try {
       const updated = await updateMeal(id, name.trim(), calories, type);
-      const idx = meals.findIndex((m) => m._id === id || m.id === id);
+      const idx = meals.findIndex((m) => m.id === id);
       if (idx !== -1) {
         meals[idx] = updated;
       }
@@ -483,7 +483,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const todayCal = getTodayMeals().reduce((s, m) => s + m.calories, 0);
     els.totalCaloriesDisplay.textContent = todayCal + " cal";
 
-    const getId = (m) => m._id || m.id;
+    const getId = (m) => m.id;
 
     els.mealsList.innerHTML = filtered
       .map(
@@ -517,7 +517,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!meal) return;
 
     els.modalTitle.textContent = "✏️ Edit Meal";
-    els.editMealId.value = meal._id || meal.id;
+    els.editMealId.value = meal.id;
     els.editMealName.value = meal.name;
     els.editMealCalories.value = meal.calories;
     els.editMealType.value = meal.type;

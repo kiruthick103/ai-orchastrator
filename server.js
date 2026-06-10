@@ -1,8 +1,7 @@
 const express = require("express");
 const path = require("path");
-const mongoose = require("mongoose");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-const Meal = require("./server/models/Meal");
+const supabase = require("./server/supabase");
 require("dotenv").config();
 
 const app = express();
@@ -12,14 +11,31 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json({ limit: "10mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
-// ---- MongoDB Connection ----
-const MONGODB_URI =
-  process.env.MONGODB_URI || "mongodb://localhost:27017/spideytracker";
-
-mongoose
-  .connect(MONGODB_URI)
-  .then(() => console.log("🕷️ MongoDB connected"))
-  .catch((err) => console.error("MongoDB connection error:", err.message));
+// ---- Supabase Connection Check ----
+(async () => {
+  if (!supabase) {
+    console.warn("⚠️ Supabase client not initialized. Set SUPABASE_URL and SUPABASE_ANON_KEY.");
+    return;
+  }
+  const { error } = await supabase.from("meals").select("id").limit(1);
+  if (error && error.code === "42P01") {
+    console.error(
+      '⚠️ "meals" table not found. Create it in Supabase SQL Editor:\n' +
+        "CREATE TABLE meals (\n" +
+        "  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,\n" +
+        "  name TEXT NOT NULL,\n" +
+        "  calories INTEGER NOT NULL CHECK (calories > 0 AND calories <= 10000),\n" +
+        "  type TEXT NOT NULL CHECK (type IN ('breakfast', 'lunch', 'dinner', 'snacks')),\n" +
+        "  date TEXT NOT NULL,\n" +
+        "  created_at TIMESTAMPTZ DEFAULT now()\n" +
+        ");"
+    );
+  } else if (error) {
+    console.error("Supabase connection error:", error.message);
+  } else {
+    console.log("🕷️ Supabase connected");
+  }
+})();
 
 // ---- API: Meals CRUD ----
 
@@ -27,19 +43,33 @@ mongoose
 app.get("/api/meals", async (req, res) => {
   try {
     const { date, type, search, limit = 500 } = req.query;
-    const filter = {};
 
-    if (date) filter.date = date;
-    if (type && type !== "all") filter.type = type;
-    if (search) {
-      filter.name = { $regex: search, $options: "i" };
+    if (!supabase) {
+      return res.status(503).json({ success: false, error: "Database not configured" });
     }
 
-    const meals = await Meal.find(filter)
-      .sort({ date: -1, createdAt: -1 })
+    let query = supabase
+      .from("meals")
+      .select("*")
+      .order("date", { ascending: false })
+      .order("created_at", { ascending: false })
       .limit(parseInt(limit));
 
-    res.json({ success: true, meals });
+    if (date) query = query.eq("date", date);
+    if (type && type !== "all") query = query.eq("type", type);
+    if (search) query = query.ilike("name", `%${search}%`);
+
+    const { data: meals, error } = await query;
+
+    if (error) throw error;
+
+    // Map created_at to createdAt for frontend compatibility
+    const mapped = meals.map((m) => ({
+      ...m,
+      createdAt: m.created_at,
+    }));
+
+    res.json({ success: true, meals: mapped });
   } catch (error) {
     console.error("GET /api/meals error:", error.message);
     res.status(500).json({ success: false, error: error.message });
@@ -51,20 +81,33 @@ app.post("/api/meals", async (req, res) => {
   try {
     const { name, calories, type, date } = req.body;
 
+    if (!supabase) {
+      return res.status(503).json({ success: false, error: "Database not configured" });
+    }
+
     if (!name || !calories || !type) {
       return res
         .status(400)
         .json({ success: false, error: "name, calories, and type are required" });
     }
 
-    const meal = await Meal.create({
-      name: name.trim(),
-      calories: parseInt(calories),
-      type,
-      date: date || new Date().toISOString().split("T")[0],
-    });
+    const { data: meal, error } = await supabase
+      .from("meals")
+      .insert({
+        name: name.trim(),
+        calories: parseInt(calories),
+        type,
+        date: date || new Date().toISOString().split("T")[0],
+      })
+      .select()
+      .single();
 
-    res.status(201).json({ success: true, meal });
+    if (error) throw error;
+
+    res.status(201).json({
+      success: true,
+      meal: { ...meal, createdAt: meal.created_at },
+    });
   } catch (error) {
     console.error("POST /api/meals error:", error.message);
     res.status(500).json({ success: false, error: error.message });
@@ -74,18 +117,28 @@ app.post("/api/meals", async (req, res) => {
 // PUT /api/meals/:id — update a meal
 app.put("/api/meals/:id", async (req, res) => {
   try {
-    const { name, calories, type } = req.body;
-    const meal = await Meal.findByIdAndUpdate(
-      req.params.id,
-      { name: name?.trim(), calories, type },
-      { new: true, runValidators: true }
-    );
+    if (!supabase) {
+      return res.status(503).json({ success: false, error: "Database not configured" });
+    }
 
-    if (!meal) {
+    const { name, calories, type } = req.body;
+
+    const { data: meal, error } = await supabase
+      .from("meals")
+      .update({
+        ...(name !== undefined && { name: name.trim() }),
+        ...(calories !== undefined && { calories }),
+        ...(type !== undefined && { type }),
+      })
+      .eq("id", req.params.id)
+      .select()
+      .single();
+
+    if (error || !meal) {
       return res.status(404).json({ success: false, error: "Meal not found" });
     }
 
-    res.json({ success: true, meal });
+    res.json({ success: true, meal: { ...meal, createdAt: meal.created_at } });
   } catch (error) {
     console.error("PUT /api/meals error:", error.message);
     res.status(500).json({ success: false, error: error.message });
@@ -95,7 +148,11 @@ app.put("/api/meals/:id", async (req, res) => {
 // DELETE /api/meals/all — clear all meals (must be before /:id)
 app.delete("/api/meals/all", async (req, res) => {
   try {
-    await Meal.deleteMany({});
+    if (!supabase) {
+      return res.status(503).json({ success: false, error: "Database not configured" });
+    }
+    const { error } = await supabase.from("meals").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+    if (error) throw error;
     res.json({ success: true, message: "All meals deleted" });
   } catch (error) {
     console.error("DELETE /api/meals/all error:", error.message);
@@ -106,14 +163,25 @@ app.delete("/api/meals/all", async (req, res) => {
 // DELETE /api/meals/:id — delete a meal
 app.delete("/api/meals/:id", async (req, res) => {
   try {
-    // Prevent "all" from being treated as an ID (should be caught above, but safety check)
     if (req.params.id === "all") {
       return res.status(400).json({ success: false, error: "Use DELETE /api/meals/all for bulk delete" });
     }
-    const meal = await Meal.findByIdAndDelete(req.params.id);
-    if (!meal) {
+
+    if (!supabase) {
+      return res.status(503).json({ success: false, error: "Database not configured" });
+    }
+
+    const { data: meal, error } = await supabase
+      .from("meals")
+      .delete()
+      .eq("id", req.params.id)
+      .select()
+      .single();
+
+    if (error || !meal) {
       return res.status(404).json({ success: false, error: "Meal not found" });
     }
+
     res.json({ success: true, message: "Meal deleted" });
   } catch (error) {
     console.error("DELETE /api/meals error:", error.message);
@@ -169,15 +237,12 @@ Respond in JSON format with these fields:
     const response = result.response;
     const text = response.text();
 
-    // Try to parse JSON response
     let analysis;
     try {
-      // Extract JSON from the response (it might be wrapped in markdown code blocks)
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         analysis = JSON.parse(jsonMatch[0]);
       } else {
-        // Fall back to raw text
         analysis = { raw_response: text };
       }
     } catch (parseError) {

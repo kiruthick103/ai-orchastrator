@@ -6,7 +6,9 @@ services:
     buildCommand: npm install
     startCommand: node server.js
     envVars:
-      - key: MONGODB_URI
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
         sync: false
       - key: GOOGLE_API_KEY
         sync: false
